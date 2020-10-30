@@ -1,0 +1,3 @@
+# ASV Database
+
+Our custom ASV Database was created by considering sequences from summer Fucus vesiculosus, Rock Scrapings, and Water Column Samples (all 3 deposited under BIOPROJECT ID PRJNA658993), Fucus Spiralis and Fucus Distichus (BIOPROJECT PENDING), Porphyra umbilicalis (BIOPROJECT PENDING), and fall Fucus vesiculosus (BIO PROJECT PENDING). Details of sampling can be found in (PAPER TITLE; N.B. F. spiralis, F. distichus and fall F. vesiculosus only came from Schoodic, P. umbilicalis was sampled at X,Y,Z....). After pooling, samples were run through Minimum Entropy Decomposition Analysis (MED; Eren et al., 20), and ASVs were defined at a cutoff of 5,000 reads across all samples. 
