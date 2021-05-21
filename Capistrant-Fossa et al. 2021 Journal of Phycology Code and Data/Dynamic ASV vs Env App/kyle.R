@@ -1,0 +1,384 @@
+library(readr)
+library(lubridate)
+library(ggvegan)
+library(dplyr)
+library(StreamMetabolism)
+library(gridExtra)
+
+get_model_formula <- function(id, object, outcome){
+  # get models data
+  models <- summary(object)$which[id,-1]
+  # Get outcome variable
+  #form <- as.formula(object$call[[2]])
+  #outcome <- all.vars(form)[1]
+  # Get model predictors
+  predictors <- names(which(models == TRUE))
+  predictors <- paste(predictors, collapse = "+")
+  # Build model formula
+  as.formula(paste0(outcome, "~", predictors))
+}
+
+clean_na <- function(y){
+  for(q in nrow(y):1){
+    if(is.NA(y$overall_R2) == TRUE){
+      y <- y [-q,]
+    }
+    
+    
+  }
+  
+}
+
+
+setwd("~/Desktop/DarkSkyData/Hourly")
+
+SummerFucusCollectionDays <- data.frame(read_csv("~/Desktop/SummerFucusCollectionDays.csv"))
+SummerFucusCollectionDays$Date<-mdy(SummerFucusCollectionDays$Date)
+
+PAR <- data.frame(read_csv("~/Desktop/SateliteData/AllPAR.csv",col_types = cols(Date = col_date(format = "%m/%d/%y"))))
+SST <- data.frame(read_csv("~/Desktop/SateliteData/AllSST.csv",col_types = cols(Date = col_date(format = "%m/%d/%y"))))
+Tides <- data.frame(read_csv("~/Desktop/SateliteData/Tides.csv", col_types = cols(DateTime = col_datetime(format = "%m/%d/%y %H:%M"))))
+Lats <- read_csv("~/Desktop/Transatlantic Analysis/Files/Lats.csv")
+
+Tides$Date<-date(Tides$DateTime)
+TidesProp <- Tides
+
+for(q in 2:19){
+  max <- max(TidesProp[,q])
+  min <- min(TidesProp[,q])
+  TidesProp[,q] <- (TidesProp[,q] - min)/(max+abs(min))
+}
+
+sunRise <- data.frame(matrix(nrow=1096,ncol=19))
+sunSet <- data.frame(matrix(nrow=1096,ncol=19))
+names(sunRise) <- names(PAR)
+sunRise$Date <- PAR$Date
+names(sunSet) <- names(PAR)
+sunSet$Date <- PAR$Date
+for(q in 1:18){
+lat <- Lats$lat[q]
+long <- Lats$lon[q]  
+sun<-sunrise.set(lat=lat,long = long, date=sunRise$Date[1]+1, timezone=Lats$Tz[q],num.days = 1096)  
+sunRise[,q+1] <- sun$sunrise
+sunSet[,q+1] <- sun$sunset
+}
+
+
+detach(package:StreamMetabolism, unload = TRUE)
+detach(package:chron, unload = TRUE)
+
+
+hourlynames<-list.files()
+for(i in 1:length(hourlynames)){
+tempHolder <- data.frame(read_csv(hourlynames[i], col_types = cols(pressure = col_double(),time = col_datetime(format = "%Y-%m-%d %H:%M:%S"))))
+tempHolder <- tempHolder[,-c(5)]
+tempHolder$Date <- date(tempHolder$time)
+newName <- as.character(strsplit(hourlynames[i],".csv")[1])
+assign(newName,tempHolder)
+}
+
+
+
+
+
+computeStats<-function(site_hourly=NA,site=NA,sampleDays=NA,PAR=PAR,SST=SST,Tides = Tides,sunRise,sunSet){
+site_coll<-subset(sampleDays,Location==site)
+nDays<-nrow(site_coll)
+selectorSST<-which(colnames(SST)==site)
+subSST <- SST[,c(1,selectorSST)]
+selectorPAR<-which(colnames(PAR)==site)
+subPAR <- PAR[,c(1,selectorPAR)]
+selectorTides<-which(colnames(Tides)==site)
+subTides<-Tides[,c(20,selectorTides)]
+selectorSunSet<-which(colnames(sunSet)==site)
+subSet<-sunSet[,c(1,selectorSunSet)]
+selectorSunRise<-which(colnames(sunRise)==site)
+subRise<-sunRise[,c(1,selectorSunRise)]
+
+
+TidesProp <- Tides
+for(q in 2:19){
+  max <- max(TidesProp[,q])
+  min <- min(TidesProp[,q])
+  TidesProp[,q] <- (TidesProp[,q] - min)/(max+abs(min))
+}
+subTidesProp<-TidesProp[,c(20,selectorTides)]
+
+
+
+weekly_stats <- data.frame(matrix(ncol = 0, nrow = (nDays)))
+for (sampleDayCounter in 1:nDays) {
+  weekCounter <- 0
+  for (nWeekPrior in 2) {
+
+    tempWeek <- site_hourly[which(site_hourly$Date <= site_coll$Date[sampleDayCounter] - days(1 + (14 * weekCounter)) & site_hourly$Date >= site_coll$Date[sampleDayCounter] - days(14 + (14 * weekCounter))),]
+    tempPAR <- subPAR[which(subPAR$Date <= site_coll$Date[sampleDayCounter] - days(1 + (14 * weekCounter)) & subPAR$Date >= site_coll$Date[sampleDayCounter] - days(14 + (14 * weekCounter))),]
+    tempSST <- subSST[which(subSST$Date <= site_coll$Date[sampleDayCounter] - days(1 + (14 * weekCounter)) & subSST$Date >= site_coll$Date[sampleDayCounter] - days(14 + (14 * weekCounter))),]
+    tempTides <- subTides[which(subTides$Date <= site_coll$Date[sampleDayCounter] - days(1 + (14 * weekCounter)) & subTides$Date >= site_coll$Date[sampleDayCounter] - days(14 + (14 * weekCounter))),]
+    tempTidesProp <- subTidesProp[which(subTidesProp$Date <= site_coll$Date[sampleDayCounter] - days(1 + (14 * weekCounter)) & subTidesProp$Date >= site_coll$Date[sampleDayCounter] - days(14 + (14 * weekCounter))),]
+    tempSunRise <- subRise[which(subRise$Date <= site_coll$Date[sampleDayCounter] - days(1 + (7 * weekCounter)) & subRise$Date >= site_coll$Date[sampleDayCounter] - days(7 + (7 * weekCounter))),]
+    tempSunSet <- subSet[which(subSet$Date <= site_coll$Date[sampleDayCounter] - days(1 + (7 * weekCounter)) & subSet$Date >= site_coll$Date[sampleDayCounter] - days(7 + (7 * weekCounter))),]
+    
+    for (varCounter in 2:(ncol(tempWeek) - 1)) {
+      var <- names(tempWeek)[varCounter]
+      weekly_stats[sampleDayCounter, paste0("median_", var, "_", nWeekPrior, "WeeksBefore")] <- median(tempWeek[, varCounter], na.rm = TRUE)
+      weekly_stats[sampleDayCounter, paste0("max_", var, "_", nWeekPrior, "WeeksBefore")] <- max(tempWeek[, varCounter], na.rm = TRUE)
+      weekly_stats[sampleDayCounter, paste0("min_", var, "_", nWeekPrior, "WeeksBefore")] <- min(tempWeek[, varCounter], na.rm = TRUE)
+      weekly_stats[sampleDayCounter, paste0("median_PAR_", nWeekPrior, "WeeksBefore")] <- median(tempPAR[, 2], na.rm = TRUE)
+      weekly_stats[sampleDayCounter, paste0("max_PAR_", nWeekPrior, "WeeksBefore")] <- max(tempPAR[, 2], na.rm = TRUE)
+      weekly_stats[sampleDayCounter, paste0("min_PAR_", nWeekPrior, "WeeksBefore")] <- min(tempPAR[, 2], na.rm = TRUE)
+      weekly_stats[sampleDayCounter, paste0("median_SST_", nWeekPrior, "WeeksBefore")] <- median(tempSST[, 2], na.rm = TRUE)
+      weekly_stats[sampleDayCounter, paste0("max_SST_", nWeekPrior, "WeeksBefore")] <- max(tempSST[, 2], na.rm = TRUE)
+      weekly_stats[sampleDayCounter, paste0("min_SST_", nWeekPrior, "WeeksBefore")] <- min(tempSST[, 2], na.rm = TRUE)
+      weekly_stats[sampleDayCounter, paste0("min_TidalHeight_", nWeekPrior, "WeeksBefore")] <- min(tempTidesProp[, 2],na.rm=TRUE)
+      weekly_stats[sampleDayCounter, paste0("max_TidalHeight_", nWeekPrior, "WeeksBefore")] <- max(tempTidesProp[, 2],na.rm=TRUE)
+      weekly_stats[sampleDayCounter, paste0("median_TidalHeight_", nWeekPrior, "WeeksBefore")] <- median(tempTidesProp[, 2],na.rm=TRUE)
+      #weekly_stats[sampleDayCounter, paste0("median_TidalProp_", nWeekPrior, "WeeksBefore")] <- median(tempTidesProp[, 2],na.rm=TRUE)
+      weekly_stats[sampleDayCounter, paste0("median_Photoperiod_", nWeekPrior, "WeeksBefore")] <- median(ifelse(is.na(difftime(tempSunSet[, 2],tempSunRise[, 2]))==TRUE,24,difftime(tempSunSet[, 2],tempSunRise[, 2])))
+    }
+
+   
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+returndf<-cbind(site_coll$Location,site_coll$Year,site_coll$Day,site_coll$Date,weekly_stats)
+return(returndf)
+
+}
+
+
+BEAU<-computeStats(site_hourly=Beaufort_hourly,site="Beau",sampleDays =SummerFucusCollectionDays,PAR,SST,Tides,sunRise,sunSet)
+BODO<-computeStats(site_hourly=Bodo_hourly,site="Bodo",sampleDays =SummerFucusCollectionDays,PAR,SST,Tides,sunRise,sunSet)
+CAD<-computeStats(site_hourly=Cadiz_hourly,site="Cad",sampleDays =SummerFucusCollectionDays,PAR,SST,Tides,sunRise,sunSet)
+TAS<-computeStats(site_hourly=Tas_hourly,site="Green",sampleDays =SummerFucusCollectionDays,PAR,SST,Tides,sunRise,sunSet)
+HALI<-computeStats(site_hourly=Halifax_hourly,site="Hali",sampleDays =SummerFucusCollectionDays,PAR,SST,Tides,sunRise,sunSet)
+LEW<-computeStats(site_hourly=Lewes_hourly,site="Lew",sampleDays =SummerFucusCollectionDays,PAR,SST,Tides,sunRise,sunSet)
+LIMA<-computeStats(site_hourly=Lima_hourly,site="Lima",sampleDays =SummerFucusCollectionDays,PAR,SST,Tides,sunRise,sunSet)
+Mine<-computeStats(site_hourly=Minehead_hourly,site="Mine",sampleDays =SummerFucusCollectionDays,PAR,SST,Tides,sunRise,sunSet)
+Newp<-computeStats(site_hourly=Newport_hourly,site="Newp",sampleDays =SummerFucusCollectionDays,PAR,SST,Tides,sunRise,sunSet)
+Oban<-computeStats(site_hourly=Oban_hourly,site="Oban",sampleDays =SummerFucusCollectionDays,PAR,SST,Tides,sunRise,sunSet)
+SCH<-computeStats(site_hourly=Schoodic_hourly,site="SCH",sampleDays =SummerFucusCollectionDays,PAR,SST,Tides,sunRise,sunSet)
+SID<-computeStats(site_hourly=Sidmouth_hourly,site="Sid",sampleDays =SummerFucusCollectionDays,PAR,SST,Tides,sunRise,sunSet)
+Tagus<-computeStats(site_hourly=Tagus_hourly,site="Tagus",sampleDays =SummerFucusCollectionDays,PAR,SST,Tides,sunRise,sunSet)
+Torr<-computeStats(site_hourly=Torriera_hourly,site="Torr",sampleDays =SummerFucusCollectionDays,PAR,SST,Tides,sunRise,sunSet)
+UUM<-computeStats(site_hourly=Uum_hourly,site="Uum",sampleDays =SummerFucusCollectionDays,PAR,SST,Tides,sunRise,sunSet)
+VIANA<-computeStats(site_hourly=Viana_hourly,site="Viana",sampleDays =SummerFucusCollectionDays,PAR,SST,Tides,sunRise,sunSet)
+WH<-computeStats(site_hourly=WoodsHole_hourly,site="WH",sampleDays =SummerFucusCollectionDays,PAR,SST,Tides,sunRise,sunSet)
+
+
+
+
+
+Env<-rbind(BEAU,BODO,CAD,TAS,HALI,LEW,LIMA,Mine,Newp,Oban,SCH,SID,Tagus,Torr,UUM,VIANA,WH)
+
+
+
+
+
+#Load in required packages
+library(readr)
+library(ggplot2)
+library(tidyverse)
+library(dplyr)
+library(leaps)
+
+
+Meta<- read_csv("~/Desktop/Transatlantic Analysis/Files/FucusPumEnvironmental/FucusPumEnvironmental4918Metadata.csv")
+ASVs <- read_csv("~/Desktop/Transatlantic Analysis/Files/FucusPumEnvironmental/FucusPumEnvironmental4918.csv")
+data_long <- gather(ASVs, SampleName, measurement, colnames(ASVs[, 2:1306]), factor_key = FALSE)
+data_long_met <- merge(data_long, Meta, by = "SampleName")
+data_long_met<-subset(data_long_met, Species =="Fv")
+
+aggdata <-aggregate(data_long_met$measurement, by=list(data_long_met$ASVid), FUN=sum, na.rm=TRUE)
+data_long_met<-data_long_met[which(data_long_met$ASVid %in% aggdata[which(aggdata$x > 1000),1]),]
+
+
+#ASVs <- subset(ASVs,ASVid=="t10392"|ASVid=="t3260"|ASVid=="t3536"|ASVid=="t8371"|ASVid=="t10317"|ASVid=="t12214"|ASVid=="t13307"|ASVid=="t14585"|ASVid=="t5033"|ASVid=="t8053"|ASVid=="t8372")
+#ASVs<-ASVs[which(rowSums(ASVs[,2:1306]) > 1000),]
+
+
+setwd("~/Desktop/Transatlantic Analysis/ASV Correlations/")
+#Coverts data into a long format for easy subsetting
+#####
+###North
+#####
+
+
+Env_anal_all<-merge(data_long_met,Env,by.y = c("site_coll$Location","site_coll$Year","site_coll$Day"),by.x=c("Site","Year","Day"))
+df <- subset(Env_anal_all,Species=="Fv")
+df <- merge(df,Lats,by.x="Site",by.y="Sites")
+
+df$lat2 <- df$lat
+#
+# This is a Shiny web application. You can run the application by clicking
+# the 'Run App' button above.
+#
+# Find out more about building applications with Shiny here:
+#
+#    http://shiny.rstudio.com/
+#
+
+
+
+
+
+library(shiny)
+library(data.table)
+
+
+
+ui <- fluidPage(
+
+  # Application title
+  titlePanel("App"),
+
+  sidebarLayout(
+    sidebarPanel(
+      selectInput("ASVid", "Choose ASV", choices = c("NULL", as.character(unique(df$ASVid))), selected = "t3260"),
+      selectInput("Tissue", "Select Tissue", choices = c("NULL","H","R","V"), selected = "R"),
+      selectInput("Group", "Choose Group", choices = c("NULL","N","M","L","E","W"), selected = "NULL"),
+      selectInput("EnvVar", "Choose EnvVar", choices = c(colnames(df[,16:44])), selected = colnames(df[,16])),
+      selectInput("EnvVar2", "Choose EnvVar2", choices = c(colnames(df[,16:44])), selected = colnames(df[,16])),
+      selectInput("Mode", "Choose Mode", choices = c("NULL", "EW"), selected = "EW"),
+      selectInput("Transform", "Choose Transformation", choices = c("NULL", "SQRT","LOG"), selected = "NULL"),
+      selectInput("Stat", "Choose Regression Method", choices = c("lm","glm","gam","loess"), selected = "lm")),
+    # Show a plot of the generated distribution
+    mainPanel(plotOutput("plot3", height = "800px")
+
+    
+      
+      
+      
+      )
+  )
+)
+
+
+
+
+# Define server logic required to draw a histogram
+server <- function(input, output) {
+
+  selectedData <- reactive({
+    if(input$ASVid == "NULL") Ddata <- df  #Keep full data set if NULL
+    else Ddata <- subset(df, ASVid == input$ASVid)
+
+    Ddata
+  })
+  
+    selectedData00 <- reactive({
+    DDdata <- selectedData()  #Keep full data set if NULL
+    if(input$Transform == "SQRT") {DDdata$measurement <- sqrt(DDdata$measurement)}
+    if(input$Transform == "LOG") {DDdata$measurement <- log(DDdata$measurement)}
+    
+    
+    DDdata
+  })
+  
+  ##was 3
+    selectedData1 <- reactive({
+    if(input$Tissue == "NULL") Zdata <- selectedData00()  #Keep full data set if NULL
+    else Zdata <- subset(selectedData00(), Tissue == input$Tissue)
+
+    Zdata
+  })  
+##was 4
+    selectedData2 <- reactive({
+    if(input$Group == "NULL") Zdata <- selectedData1()  #Keep full data set if NULL
+    if(input$Group == "N") Zdata <- subset(selectedData1(), lat > 56) #Keep full data set if NULL
+    if(input$Group == "M") Zdata <- subset(selectedData1(), lat < 56 & lat > 40)  #Keep full data set if NULL
+    if(input$Group == "L") Zdata <- subset(selectedData1(), lat < 40)  #Keep full data set if NULL
+    if(input$Group == "E") Zdata <- subset(selectedData1(), lon < -40)  #Keep full data set if NULL
+    if(input$Group == "W") Zdata <- subset(selectedData1(), lon > -40 ) #Keep full data set if NULL
+    
+    Zdata
+  })    
+    
+ 
+##was 2  
+  selectedData3 <- reactive({
+    if(input$EnvVar == "NULL") Vdata <- selectedData2()  #Keep full data set if NULL
+    else Vdata <- selectedData2() %>% dplyr::select(c("ASVid","measurement",input$EnvVar,"lat"))
+
+    Vdata
+  })
+###was 10  
+   selectedData4 <- reactive({
+    if(input$Mode == "NULL") VVdata <- selectedData2()   #Keep full data set if NULL
+    else VVdata <- subset(selectedData2(), lon < -40) 
+    VVdata<-VVdata %>% dplyr::select(c("ASVid","measurement",input$EnvVar,"lat"))
+    VVdata
+  }) 
+##was 11   
+    selectedData5 <- reactive({
+    if(input$Mode == "NULL") VVVdata <- selectedData2()  #Keep full data set if NULL
+    else VVVdata <- subset(selectedData2(), lon > -40)
+     VVVdata<-VVVdata %>% dplyr::select(c("ASVid","measurement",input$EnvVar,"lat"))
+    VVVdata
+  })
+    
+### 
+   selectedData6 <- reactive({
+    if(input$Mode == "NULL") VVVVdata <- selectedData2()   #Keep full data set if NULL
+    else VVVVdata <- subset(selectedData2(), lon < -40) 
+    VVVVdata<-VVVVdata %>% dplyr::select(c("ASVid","measurement",input$EnvVar2,"lat"))
+    VVVVdata
+  }) 
+##   
+    selectedData7 <- reactive({
+    if(input$Mode == "NULL") VVVVVdata <- selectedData2()  #Keep full data set if NULL
+    else VVVVVdata <- subset(selectedData2(), lon > -40)
+     VVVVVdata<-VVVVVdata %>% dplyr::select(c("ASVid","measurement",input$EnvVar2,"lat"))
+    VVVVVdata
+  })     
+  
+ 
+    
+
+
+    output$plot3 <- renderPlot({
+      
+    xmin<-min(c(selectedData4()[,3],selectedData5()[,3]))
+    xmax<-max(c(selectedData4()[,3],selectedData5()[,3]))
+    ymin<-min(c(selectedData4()[,2],selectedData5()[,2]))
+    ymax<-max(c(selectedData4()[,2],selectedData5()[,2]))
+    xmin2<-min(c(selectedData6()[,3],selectedData7()[,3]))
+    xmax2<-max(c(selectedData6()[,3],selectedData7()[,3]))
+    ymin2<-min(c(selectedData6()[,2],selectedData7()[,2]))
+    ymax2<-max(c(selectedData6()[,2],selectedData7()[,2]))
+    
+    
+    
+    
+    g1<-ggplot()+geom_point(data=selectedData4(),aes(x=selectedData4()[,3],y=measurement))+geom_smooth(method=input$Stat,color="black",data=selectedData4(),aes(x=selectedData4()[,3],y=measurement),se=FALSE) + xlab(as.character(input$EnvVar)) + ylab("Reads")
+    g1<-g1+geom_point(data=selectedData5(),aes(x=selectedData5()[,3],y=measurement),color="red")+geom_smooth(method=input$Stat,color="red", data=selectedData5(),aes(x=selectedData5()[,3],y=measurement),se=FALSE)+xlim(c(xmin,xmax))+ylim(c(ymin,ymax))
+    g2<-ggplot()+geom_point(data=selectedData6(),aes(x=selectedData6()[,3],y=measurement))+geom_smooth(method=input$Stat,color="black",data=selectedData6(),aes(x=selectedData6()[,3],y=measurement),se=FALSE) + xlab(as.character(input$EnvVar2)) + ylab("Reads")
+    g2<-g2+geom_point(data=selectedData7(),aes(x=selectedData7()[,3],y=measurement),color="red")+geom_smooth(method=input$Stat,color="red", data=selectedData7(),aes(x=selectedData7()[,3],y=measurement),se=FALSE)+xlim(c(xmin2,xmax2))+ylim(c(ymin2,ymax2))
+    g3<-ggplot(data=selectedData3(),aes(x=selectedData3()[,4],y=measurement))+geom_point()+xlab("Latitude")+ylab("Reads")+geom_smooth(method=input$Stat,color="black",data=selectedData3(),aes(x=selectedData3()[,4],y=measurement))
+    grid.arrange(g1,g2,g3)
+  
+    })
+  
+  
+  
+  
+  
+}  
+
+  
+  
+# Run the application 
+shinyApp(ui, server)
